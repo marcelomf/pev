@@ -41,8 +41,9 @@
 #include <string.h>
 #include <strings.h>
 #include <getopt.h>
+#include <ctype.h>
 
-#include <pe.h>
+#include <libpe/pe.h>
 #include "config.h"
 #include "output.h"
 #include "plugins.h"

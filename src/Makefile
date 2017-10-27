@@ -29,7 +29,7 @@ manext = .1
 man1dir = $(mandir)/man1
 man1ext = .1
 
-export pluginsdir = $(DESTDIR)$(libdir)/pev/plugins
+export pluginsdir = $(libdir)/pev/plugins
 
 ####### Makefile Conventions - Utilities
 
@@ -52,9 +52,16 @@ endif
 
 ####### Compiler options
 
-override LDFLAGS += -L$(LIBPE) -lpe -ldl
-override CFLAGS += -I$(LIBPE) -I"../include" -W -Wall -Wextra -std=c99 -pedantic
-override CPPFLAGS += -D_GNU_SOURCE
+override LDFLAGS += -L$(LIBPE) -lpe -lcrypto -lssl -ldl -lm
+override CFLAGS += -I$(LIBPE)/include -I"../include" -W -Wall -Wextra -std=c99 -pedantic
+# Some gcc/clang builds (depends on the distro) already define _FORTIFY_SOURCE internally, so we
+# undefine it first to avoid redefinition warnings.
+override CPPFLAGS += \
+	-D_GNU_SOURCE \
+	-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=1 \
+	-DSHAREDIR="\"$(SHAREDIR)"\" \
+	-DPLUGINSDIR="\"$(pluginsdir)"\"
+
 
 ifeq ($(PLATFORM_OS), Darwin)
 	# We disable warnings for deprecated declarations since Apple deprecated OpenSSL in Mac OS X 10.7
@@ -65,15 +72,13 @@ ifeq ($(PLATFORM_OS), CYGWIN)
 	override CPPFLAGS += -D_XOPEN_SOURCE=600
 endif
 
-SRC_DIRS = $(srcdir) $(srcdir)/compat $(srcdir)/../lib/libfuzzy $(srcdir)/../lib/liblznt1
+SRC_DIRS = $(srcdir) $(srcdir)/compat
 
-PROGS = readpe rva2ofs ofs2rva pehash pesec pescan pepack pestr pedis peres unlznt1
+PROGS = readpe rva2ofs ofs2rva pehash pesec pescan pepack pestr pedis peres
 PLUGINS_DIR = $(srcdir)/plugins
 SHAREDIR = $(datadir)/pev
-export LIBPE = $(srcdir)/../lib/libpe
+export LIBPE = $(realpath $(srcdir)/../lib/libpe)
 LIBUDIS86 = $(srcdir)/../lib/libudis86
-LIBFUZZY = $(srcdir)/../lib/libfuzzy
-LIBLZNT1 = $(srcdir)/../lib/liblznt1
 MANDIR = $(srcdir)/../doc/manpages
 
 export pev_BUILDDIR = ./build
@@ -104,42 +109,36 @@ plugins:
 ofs2rva: $(pev_BUILDDIR)/ofs2rva.o $(pev_OBJS)
 	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS)
 
+pedis: CPPFLAGS += -DHAVE_STRING_H
 pedis: CFLAGS += -I$(LIBUDIS86)
-pedis: $(LIBUDIS86)/libudis86/*.c
 pedis: $(pev_BUILDDIR)/pedis.o $(pev_OBJS)
 	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS) $(CFLAGS) $(CPPFLAGS) $(LIBUDIS86)/libudis86/*.c
 
-pehash: LDFLAGS += -lssl -lcrypto
-pehash: CFLAGS += -I$(LIBFUZZY)
 pehash: $(pev_BUILDDIR)/pehash.o $(pev_OBJS)
-	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS) $(CFLAGS) $(CPPFLAGS) $(LIBFUZZY)/*.c
+	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS) $(CFLAGS) $(CPPFLAGS)
 
 pepack: $(pev_BUILDDIR)/pepack.o $(pev_OBJS)
-	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS)
+	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS) $(CFLAGS) $(CPPFLAGS)
 
 peres: $(pev_BUILDDIR)/peres.o $(pev_OBJS)
-	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS)
+	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS) $(CFLAGS) $(CPPFLAGS)
 
 pescan: LDFLAGS += -lm
 pescan: $(pev_BUILDDIR)/pescan.o $(pev_OBJS)
-	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS)
+	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS) $(CFLAGS) $(CPPFLAGS)
 
 pesec: LDFLAGS += -lcrypto
 pesec: $(pev_BUILDDIR)/pesec.o $(pev_OBJS)
-	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS)
+	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS) $(CFLAGS) $(CPPFLAGS)
 
 pestr: $(pev_BUILDDIR)/pestr.o $(pev_OBJS)
-	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS)
+	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS) $(CFLAGS) $(CPPFLAGS)
 
 readpe: $(pev_BUILDDIR)/readpe.o $(pev_OBJS)
-	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS)
+	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS) $(CFLAGS) $(CPPFLAGS)
 
 rva2ofs: $(pev_BUILDDIR)/rva2ofs.o $(pev_OBJS)
-	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS)
-
-unlznt1: CFLAGS += -I$(LIBLZNT1)
-unlznt1: $(pev_BUILDDIR)/unlznt1.o $(pev_OBJS)
-	$(CC) $< -o $(pev_BUILDDIR)/$@ $(CFLAGS) $(CPPFLAGS) $(LIBLZNT1)/*.c
+	$(CC) $< -o $(pev_BUILDDIR)/$@ $(pev_COMMON_DEPS) $(LDFLAGS) $(CFLAGS) $(CPPFLAGS)
 
 # Generic rule matching sources
 
@@ -149,7 +148,7 @@ $(pev_BUILDDIR)/%.o: %.c
 
 install: installdirs
 	for prog in $(PROGS); do \
-		$(INSTALL_PROGRAM) $(pev_BUILDDIR)/$$prog $(DESTDIR)$(bindir); \
+		$(INSTALL_PROGRAM) $(INSTALL_FLAGS) $(pev_BUILDDIR)/$$prog $(DESTDIR)$(bindir); \
 		$(CHK_FILE_EXISTS) $(MANDIR)/$$prog$(man1ext) && \
 			gzip -c -9 $(MANDIR)/$$prog$(man1ext) > $(DESTDIR)$(man1dir)/$$prog$(man1ext).gz || \
 			echo -n; \
@@ -157,6 +156,9 @@ install: installdirs
 
 	$(INSTALL_DATA) $(srcdir)/userdb.txt $(DESTDIR)$(SHAREDIR)
 	cd $(PLUGINS_DIR) && $(MAKE) $@
+
+install-strip: INSTALL_FLAGS += -s
+install-strip: install
 
 installdirs:
 	@$(CHK_DIR_EXISTS) $(DESTDIR) || $(MKDIR) $(DESTDIR)

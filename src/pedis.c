@@ -3,7 +3,7 @@
 
 	pedis.c - PE disassembler
 
-	Copyright (C) 2012 - 2015 pev authors
+	Copyright (C) 2012 - 2017 pev authors
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -75,7 +75,7 @@ static void usage(void)
 		" -o, --offset <offset>                  disassemble at specified file offset\n"
 		" -r, --rva <rva>                        disassemble at specified RVA\n"
 		" -s, --section <section_name>           disassemble entire section given\n"
-		" -v, --version                          show version and exit\n"
+		" -V, --version                          show version and exit\n"
 		" --help                                 show this help and exit\n",
 		PROGRAM, PROGRAM, formats);
 }
@@ -97,7 +97,7 @@ static options_t *parse_options(int argc, char *argv[])
 	memset(options, 0, sizeof(options_t));
 
 	/* Parameters for getopt_long() function */
-	static const char short_options[] = "em:i:n:o:r:s:f:v";
+	static const char short_options[] = "em:i:n:o:r:s:f:V";
 
 	static const struct option long_options[] = {
 		{ "help",             no_argument,       NULL,  1  },
@@ -109,7 +109,7 @@ static options_t *parse_options(int argc, char *argv[])
 		{ "rva",              required_argument, NULL, 'r' },
 		{ "section",          required_argument, NULL, 's' },
 		{ "format",           required_argument, NULL, 'f' },
-		{ "version",          no_argument,       NULL, 'v' },
+		{ "version",          no_argument,       NULL, 'V' },
 		{ NULL,               0,                 NULL,  0  }
 	};
 
@@ -167,7 +167,7 @@ static options_t *parse_options(int argc, char *argv[])
 			case 's':
 				options->section = strdup(optarg);
 				break;
-			case 'v':
+			case 'V':
 				printf("%s %s\n%s\n", PROGRAM, TOOLKIT, COPY);
 				exit(EXIT_SUCCESS);
 			case 'f':
@@ -235,23 +235,23 @@ static void disassemble_offset(pe_ctx_t *ctx, const options_t *options, ud_t *ud
 	if (ctx == NULL || offset == 0)
 		return;
 
-	uint64_t c = 0; // counter for disassembled instructions
-	uint64_t b = 0; // counter for disassembled bytes
+	uint64_t instr_counter = 0; // counter for disassembled instructions
+	uint64_t byte_counter = 0; // counter for disassembled bytes
 
 	while (ud_disassemble(ud_obj))
 	{
 		char ofs[MAX_MSG], value[MAX_MSG], *bytes;
-		unsigned char *opcode = ud_insn_ptr(ud_obj);
-		unsigned int mnic, op_t;
+		const uint8_t *opcode = ud_insn_ptr(ud_obj);
 
-		c++; // increment instruction counter
-		b += ud_insn_len(ud_obj);
+		instr_counter++; // increment instruction counter
+		byte_counter += ud_insn_len(ud_obj);
 
-		if (options->nbytes && b >= options->nbytes)
+		if (options->nbytes && byte_counter >= options->nbytes)
 			return;
 
-		mnic = ud_obj->mnemonic;
-		op_t = ud_obj->operand ? ud_obj->operand[0].type : 0;
+		const ud_mnemonic_code_t mnic = ud_insn_mnemonic(ud_obj);
+		const ud_operand_t *operand = ud_insn_opr(ud_obj, 0);
+		const ud_type_t op_type = operand != NULL ? operand->type : 0;
 
 		snprintf(ofs, MAX_MSG, "%"PRIx64, (options->offset_is_rva ? ctx->pe.imagebase : 0) + offset + ud_insn_off(ud_obj));
 		bytes = insert_spaces(ud_insn_hex(ud_obj));
@@ -260,9 +260,10 @@ static void disassemble_offset(pe_ctx_t *ctx, const options_t *options, ud_t *ud
 			return;
 
 		// correct near operand addresses for calls and jumps
-		if (op_t && (op_t != UD_OP_MEM) && (mnic == UD_Icall || (mnic >= UD_Ijo && mnic <= UD_Ijmp)))
+		if (op_type && (op_type != UD_OP_MEM) && (mnic == UD_Icall || (mnic >= UD_Ijo && mnic <= UD_Ijmp)))
 		{
-			char *ins = strtok(ud_insn_asm(ud_obj), "0x");
+			char *instr_asm = strdup(ud_insn_asm(ud_obj));
+			char *instr = strtok(instr_asm, "0x");
 
 			snprintf(value,
 				MAX_MSG,
@@ -270,9 +271,10 @@ static void disassemble_offset(pe_ctx_t *ctx, const options_t *options, ud_t *ud
 				bytes,
 				SPACES - (int) strlen(bytes),
 				' ',
-				ins ? ins : "",
+				instr ? instr : "",
 				ctx->pe.imagebase + offset + ud_insn_off(ud_obj) + ud_obj->operand[0].lval.sdword + ud_insn_len(ud_obj)
 			);
+			free(instr_asm);
 		}
 		else
 			snprintf(value, MAX_MSG, "%s%*c%s", bytes, SPACES - (int) strlen(bytes), ' ', ud_insn_asm(ud_obj));
@@ -281,16 +283,16 @@ static void disassemble_offset(pe_ctx_t *ctx, const options_t *options, ud_t *ud
 		output(ofs, value);
 
 		// for sections, we stop at end of section
-		if (options->section && c >= options->ninstructions)
+		if (options->section && instr_counter >= options->ninstructions)
 			break;
-		else if (c >= options->ninstructions && options->ninstructions)
+		else if (instr_counter >= options->ninstructions && options->ninstructions)
 			break;
 		else if (options->entrypoint)
 		{
-		// search for LEAVE or RET insrtuctions
-		for (unsigned int i=0; i < ud_insn_len(ud_obj); i++)
-			if (is_ret_instruction(opcode[i]))
-				return;
+			// search for LEAVE or RET insrtuctions
+			for (unsigned int i=0; i < ud_insn_len(ud_obj); i++)
+				if (is_ret_instruction(opcode[i]))
+					return;
 		}
 	}
 }

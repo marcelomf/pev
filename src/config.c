@@ -34,17 +34,13 @@
 */
 
 #include "config.h"
-#include "error.h" // from libpe
 #include "utils.h"
+#include <libpe/error.h>
 #include <stdlib.h>
 #include <string.h>
 #if defined(__linux__)
 #include <linux/limits.h>
-#elif defined(__NetBSD__)
-#include <limits.h>
-#elif defined(__APPLE__)
-#include <sys/syslimits.h>
-#elif defined(__CYGWIN__)
+#elif defined(__APPLE__) || defined(__OpenBSD__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__CYGWIN__)
 #include <limits.h>
 #endif
 
@@ -55,7 +51,7 @@
 #define DEFAULT_PLUGINS_PATH "plugins"
 #else
 #define DEFAULT_CONFIG_PATH ".config/pev" DEFAULT_CONFIG_FILENAME
-#define DEFAULT_PLUGINS_PATH "/usr/local/lib/pev/plugins"
+#define DEFAULT_PLUGINS_PATH PLUGINSDIR // PLUGINSDIR is defined via CPPFLAGS in the Makefile
 #endif
 
 static bool _load_config_cb(pev_config_t * const config, const char *name, const char *value) {

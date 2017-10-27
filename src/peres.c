@@ -3,7 +3,7 @@
 
 	peres.c - retrive informations and binary data of resources
 
-	Copyright (C) 2012 - 2014 pev authors
+	Copyright (C) 2012 - 2017 pev authors
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -37,33 +37,6 @@
 #include <string.h>
 
 #define PROGRAM "peres"
-
-typedef enum {
-    RDT_LEVEL1 = 1,
-    RDT_LEVEL2 = 2,
-    RDT_LEVEL3 = 3
-} NODE_LEVEL_PERES;
-
-typedef enum {
-    RDT_RESOURCE_DIRECTORY = 1,
-    RDT_DIRECTORY_ENTRY = 2,
-    RDT_DATA_STRING = 3,
-    RDT_DATA_ENTRY = 4
-} NODE_TYPE_PERES;
-
-typedef struct _NODE_PERES {
-	NODE_TYPE_PERES nodeType;
-	NODE_LEVEL_PERES nodeLevel;
-	union {
-		IMAGE_RESOURCE_DIRECTORY *resourceDirectory; // nodeType == 1
-		IMAGE_RESOURCE_DIRECTORY_ENTRY *directoryEntry; // nodeType == 2
-		IMAGE_RESOURCE_DATA_STRING *dataString; // nodeType == 3
-		IMAGE_RESOURCE_DATA_ENTRY *dataEntry; // nodeType == 4
-	} resource;
-	struct _NODE_PERES *nextNode;
-	struct _NODE_PERES *lastNode;
-	struct _NODE_PERES *rootNode;
-} NODE_PERES;
 
 static const RESOURCE_ENTRY resource_types[] = {
 	{ "RT_CURSOR",			1, ".cur",		"cursors"		},
@@ -110,17 +83,21 @@ typedef struct {
 
 static void usage(void)
 {
+	static char formats[255];
+	output_available_formats(formats, sizeof(formats), '|');
 	printf("Usage: %s OPTIONS FILE\n"
 		"Show information about resource section and extract it\n"
 		"\nExample: %s -a putty.exe\n"
 		"\nOptions:\n"
 		" -a, --all                              Show all information, statistics and extract resources\n"
+		" -f, --format <%s>  change output format (default: text)\n"
+		" -i, --info                             Show resources information\n"
+		" -s, --statistics                       Show resources statistics\n"
 		" -x, --extract                          Extract resources\n"
-		" -i, --info                             Show informations\n"
-		" -s, --statistics                       Show statistics\n"
-		" -v, --version                          Show version and exit\n"
+		" -v, --file-version                     Show File Version from PE resource directory\n"
+		" -V, --version                          show version and exit\n"
 		" --help                                 Show this help and exit\n",
-		PROGRAM, PROGRAM);
+		PROGRAM, PROGRAM, formats);
 }
 
 static void free_options(options_t *options)
@@ -137,19 +114,19 @@ static options_t *parse_options(int argc, char *argv[])
 	memset(options, 0, sizeof(options_t));
 
 	/* Parameters for getopt_long() function */
-	static const char short_options[] = "a:x:i:s:v";
+	static const char short_options[] = "a:f:isxvV";
 
 	static const struct option long_options[] = {
-		{ "all",		required_argument,	NULL, 'a' },
-		{ "extract",	no_argument,		NULL, 'x' },
-		{ "info",		no_argument,		NULL, 'i' },
-		{ "statistics",	no_argument,		NULL, 's' },
-		{ "version",	no_argument,		NULL, 'v' },
-		{ "help",		no_argument,		NULL,  1  },
-		{ NULL,			0,					NULL,  0  }
-	};
-
-	//memset(&config, false, sizeof(config));
+		{ "all",            required_argument,  NULL, 'a' },
+		{ "format",         required_argument,  NULL, 'f' },
+		{ "info",           no_argument,        NULL, 'i' },
+		{ "statistics",	    no_argument,        NULL, 's' },
+		{ "extract",	    no_argument,        NULL, 'x' },
+		{ "file-version",   no_argument,        NULL, 'v' },
+		{ "version",	    no_argument,        NULL, 'V' },
+		{ "help",           no_argument,        NULL,  1  },
+		{ NULL,             0,                  NULL,  0  }
+		};
 
 	int c, ind;
 
@@ -163,8 +140,9 @@ static options_t *parse_options(int argc, char *argv[])
 			case 'a':
 				options->all = true;
 				break;
-			case 'x':
-				options->extract = true;
+			case 'f':
+				if (output_set_format_by_name(optarg) < 0)
+					EXIT_ERROR("invalid format option");
 				break;
 			case 'i':
 				options->info = true;
@@ -172,7 +150,13 @@ static options_t *parse_options(int argc, char *argv[])
 			case 's':
 				options->statistics = true;
 				break;
+			case 'x':
+				options->extract = true;
+				break;
 			case 'v':
+				options->version = true;
+				break;
+			case 'V':
 				printf("%s %s\n%s\n", PROGRAM, TOOLKIT, COPY);
 				exit(EXIT_SUCCESS);
 			case 1: // --help option
@@ -435,8 +419,6 @@ static void extractResources(pe_ctx_t *ctx, const NODE_PERES *node)
 		node = node->lastNode;
 	}
 
-	output("!SAVE RESOURCES!", NULL);
-
 	while (node != NULL) {
 		if (node->nodeType != RDT_DATA_ENTRY) {
 			node = node->nextNode;
@@ -448,6 +430,64 @@ static void extractResources(pe_ctx_t *ctx, const NODE_PERES *node)
 	}
 }
 
+static void showVersion(pe_ctx_t *ctx, const NODE_PERES *node)
+{
+	assert(node != NULL);
+
+	int count = 0;
+	const NODE_PERES *dataEntryNode;
+	uint32_t nameOffset;
+	bool found = false;
+
+	while (node->lastNode != NULL) {
+		node = node->lastNode;
+	}
+
+	while (node != NULL) {
+		if (node->nodeType != RDT_DATA_ENTRY) {
+			node = node->nextNode;
+			continue;
+		}
+		count++;
+		//if (count==19)
+		dataEntryNode = lastNodeByType(node, RDT_DATA_ENTRY);
+		if (dataEntryNode == NULL)
+			return;
+		nameOffset = node->rootNode->resource.directoryEntry->DirectoryName.name.NameOffset;
+		if (nameOffset == 16) {
+			found = true;
+			break;
+		}
+		node = node->nextNode;
+	}
+
+	if (!found)
+		return;
+	
+	const uint64_t offsetData = pe_rva2ofs(ctx, dataEntryNode->resource.dataEntry->offsetToData);
+	const size_t dataEntrySize = dataEntryNode->resource.dataEntry->size;
+	const char *buffer = LIBPE_PTR_ADD(ctx->map_addr, 32 + offsetData);
+	if (!pe_can_read(ctx, buffer, dataEntrySize)) {
+		// TODO: Should we report something?
+		return;
+	}
+
+	VS_FIXEDFILEINFO *info = (VS_FIXEDFILEINFO *) buffer;
+	char value[MAX_MSG];
+
+	//snprintf(value, MAX_MSG, "%d", totalCount);
+	
+	
+	snprintf(value, MAX_MSG, "%u.%u.%u.%u",
+	(unsigned int)(info->dwProductVersionMS & 0xffff0000) >> 16,
+	(unsigned int)info->dwProductVersionMS & 0x0000ffff,
+	(unsigned int)(info->dwProductVersionLS & 0xffff0000) >> 16,
+	(unsigned int)info->dwProductVersionLS & 0x0000ffff);
+
+	output("File Version", value);
+
+}
+
 static void showInformations(const NODE_PERES *node)
 {
 	assert(node != NULL);
@@ -455,8 +495,6 @@ static void showInformations(const NODE_PERES *node)
 	while (node->lastNode != NULL) {
 		node = node->lastNode;
 	}
-
-	output("!SHOW INFORMATIONS!", NULL);
 
 	while (node != NULL) {
 		showNode(node);
@@ -469,8 +507,6 @@ static void showStatistics(const NODE_PERES *node)
 	while (node->lastNode != NULL) {
 		node = node->lastNode;
 	}
-
-	output("!SHOW STATISTICS!", NULL);
 
 	int totalCount = 0;
 	int totalResourceDirectory = 0;
@@ -548,7 +584,7 @@ static NODE_PERES * discoveryNodesPeres(pe_ctx_t *ctx)
 		return NULL;
 
 	uint64_t resourceDirOffset = pe_rva2ofs(ctx, resourceDirectory->VirtualAddress);
-	char s[MAX_MSG];
+	/*char s[MAX_MSG];
 
 	if (resourceDirectory->Size != 0) {
 		snprintf(s, MAX_MSG, "%#x (%d bytes)",
@@ -561,7 +597,7 @@ static NODE_PERES * discoveryNodesPeres(pe_ctx_t *ctx)
 		output(pe_directory_name(IMAGE_DIRECTORY_ENTRY_RESOURCE), s); // Resource table
 #endif
 		//printf("Offset by RVA: 0x%x\n\n", resourceDirOffset);
-	}
+	}*/
 
 	uintptr_t offset = resourceDirOffset;
 	void *ptr = LIBPE_PTR_ADD(ctx->map_addr, offset);
@@ -740,6 +776,7 @@ int main(int argc, char **argv)
 		showInformations(node);
 		showStatistics(node);
 		extractResources(&ctx, node);
+		showVersion(&ctx, node);
 	} else {
 		if (options->extract)
 			extractResources(&ctx, node);
@@ -747,6 +784,8 @@ int main(int argc, char **argv)
 			showInformations(node);
 		if (options->statistics)
 			showStatistics(node);
+		if (options->version)
+			showVersion(&ctx, node);
 	}
 
 	output_close_document();

@@ -3,7 +3,7 @@
 
 	pesec.c - Check for security features in PE files.
 
-	Copyright (C) 2012 - 2015 pev authors
+	Copyright (C) 2012 - 2017 pev authors
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -66,7 +66,7 @@ static void usage(void)
 		" -f, --format <%s>  change output format (default: text)\n"
 		" -c, --certoutform <text|pem>           specifies the certificate output format (default: text)\n"
 		" -o, --certout <filename>               specifies the output filename to write certificates to (default: stdout)\n"
-		" -v, --version                          show version and exit\n"
+		" -V, --version                          show version and exit\n"
 		" --help                                 show this help and exit\n",
 		PROGRAM, PROGRAM, formats);
 }
@@ -124,14 +124,14 @@ static options_t *parse_options(int argc, char *argv[])
 	memset(options, 0, sizeof(options_t));
 
 	/* Parameters for getopt_long() function */
-	static const char short_options[] = "f:c:o:v";
+	static const char short_options[] = "f:c:o:V";
 
 	static const struct option long_options[] = {
 		{ "format",			required_argument,	NULL,	'f' },
 		{ "certoutform",	required_argument,	NULL,	'c' },
 		{ "certout",		required_argument,	NULL,	'o' },
 		{ "help",			no_argument,		NULL,	 1  },
-		{ "version",		no_argument,		NULL,	'v' },
+		{ "version",		no_argument,		NULL,	'V' },
 		{ NULL,				0,					NULL, 	 0  }
 	};
 
@@ -160,6 +160,9 @@ static options_t *parse_options(int argc, char *argv[])
 			case 'o':
 				options->certout = parse_certout(optarg);
 				break;
+			case 'V':
+				printf("%s %s\n%s\n", PROGRAM, TOOLKIT, COPY);
+				exit(EXIT_SUCCESS);
 			default:
 				fprintf(stderr, "%s: try '--help' for more information\n", PROGRAM);
 				exit(EXIT_FAILURE);
@@ -222,7 +225,9 @@ static int parse_pkcs7_data(const options_t *options, const CRYPT_DATA_BLOB *blo
 	PKCS7 *p7 = NULL;
 	BIO *in = NULL;
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	CRYPTO_malloc_init();
+#endif
 	ERR_load_crypto_strings();
 	OpenSSL_add_all_algorithms();
 
@@ -271,7 +276,9 @@ static int parse_pkcs7_data(const options_t *options, const CRYPT_DATA_BLOB *blo
 	if (numcerts > 0) {
 		X509 *subject = sk_X509_value(certs, 0);
 		X509 *issuer = sk_X509_value(certs, numcerts - 1);
-		int valid_sig = X509_verify(subject, X509_get_pubkey(issuer));
+		EVP_PKEY *issuer_pubkey = X509_get_pubkey(issuer);
+		int valid_sig = X509_verify(subject, issuer_pubkey);
+		EVP_PKEY_free(issuer_pubkey);
 		output("Signature", valid_sig == 1 ? "valid" : "invalid");
 	}
 
